@@ -84,11 +84,8 @@ def find_task_with_pid(target_pid):
         proc = bsd_info_void_ptr.Cast(proc_ptr_type)
 
         p_pid = proc.GetChildMemberWithName('p_pid').GetValueAsUnsigned()
-        print(p_pid)
         if proc and p_pid == target_pid:
             return task
-
-    print 'Cannot find process with pid %d' % target_pid
 
 
 def iterate_queue(queue_head, entry_type, entry_field_name):

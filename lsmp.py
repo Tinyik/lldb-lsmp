@@ -60,10 +60,20 @@ class ListMachPort:
 
         args = ListMachPort.parser.parse_args(command.split())
         
-        target_pid, mpindex = args.pid, args.mpindex
+        target_pid, mpindex, count = args.pid, args.mpindex, args.count
 
         task = find_task_with_pid(target_pid) 
+        if task is None:
+            print "Cannot find process with pid %d" % target_pid
+            exit(-1)
+
         ipc_space = task.GetChildMemberWithName('itk_space')
+        is_table_size = ipc_space.GetChildMemberWithName('is_table_size').GetValueAsUnsigned()
+
+        if count:
+            print 'This process has %d port rights.' % is_table_size
+            return
+        
         is_table = ipc_space.GetChildMemberWithName('is_table')
 
         assert(is_table.GetTypeName() == 'ipc_entry_t')
@@ -89,7 +99,10 @@ class ListMachPort:
         receiver_proc_pid = receiver_proc_ptr.GetChildMemberWithName('p_pid').GetValueAsUnsigned()
         receiver_proc_name = receiver_proc_ptr.GetChildMemberWithName('p_name').GetSummary()
 
-        print("Receiver of this port is %s" % receiver_proc_name)
+        if receiver_proc_name is not None:
+            print "Receive right of this port belongs to %s" % receiver_proc_name
+        else:
+            print "This port does not have receiver"
 
 
 def __lldb_init_module(debugger, internal_dic):
