@@ -112,13 +112,13 @@ class ListMachPort:
 
         #FIXME: Current implementation does not consider ipc_space_kernel
 
-        proc_pid, proc_name, disps = port_find_right(ipc_port, disposition)
+        proc_pid, proc_name, ie_bits = port_find_right(ipc_port, disposition)
 
         print proc_pid
         print "====="
         print proc_name
         print "====="
-        print [hex(x) for x in disps]
+        print [hex(x) for x in ie_bits]
 
         # if proc_name is not None:
         #     print "Receive right of this port belongs to %d: %s" % (proc_pid, proc_name)

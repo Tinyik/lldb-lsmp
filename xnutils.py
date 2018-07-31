@@ -70,14 +70,15 @@ def task_get_p_name(target_task):
 	return p_name
 
 
-def port_get_receiver(target_port):
+def port_get_receiver_info(target_port):
 	""" Return the p_pid and p_name that owns the receive right to TARGET_PORT.
 		params:
 			target_port 				- lldb.SBValue
 
 		returns:
 			(receiver_proc_pid, 		- int
-			 receiver_proc_name)		- str
+			 receiver_proc_name,		- str
+			 receiver_task     )		- lldb.SBValue
 	"""
 	receiver_itk_space = target_port.GetChildMemberWithName('data').GetChildMemberWithName('receiver')
 
@@ -85,7 +86,7 @@ def port_get_receiver(target_port):
 	receiver_proc_pid = task_get_p_pid(receiver_task)
 	receiver_proc_name = task_get_p_name(receiver_task)
 
-	return (receiver_proc_pid, receiver_proc_name)
+	return (receiver_proc_pid, receiver_proc_name, receiver_task)
 
 
 def task_get_ith_ipc_entry(target_task, index):
@@ -144,34 +145,40 @@ def port_find_right(target_port, disposition=None):
 		returns:
 			(proc_pids, 				- list of int          
 			 proc_names,				- list of str
-			 proc_disps)				- list of int
+			 proc_ie_bits)				- list of int
 	"""
-	proc_pids 	= []
-	proc_names 	= []
-	proc_disps 	= []
+	proc_pids 		= []
+	proc_names 		= []
+	proc_ie_bits 	= []
+
+	target_port_addr = target_port.GetValueAsUnsigned()
+	ipc_port_ptr_type = getsbtype('struct ipc_port *')
 
 	# If dispostion is just MACH_PORT_TYPE_RECEIVE, we take the fast path
 	if disposition == MACH_PORT_TYPE_RECEIVE:
-		receiver_pid, receiver_proc_name = port_get_receiver(target_port)
-		proc_pids.append(receiver_pid)
-		proc_names.append(receiver_proc_name)
+		receiver_pid, receiver_proc_name, receiver_task = port_get_receiver_info(target_port)
+		for entry in task_iterate_ipc_entry(receiver_task, MACH_PORT_TYPE_RECEIVE):
+			port = entry.GetChildMemberWithName('ie_object').Cast(ipc_port_ptr_type)
+			if port.GetValueAsUnsigned() == target_port_addr:
+				proc_pids.append(receiver_pid)
+				proc_names.append(receiver_proc_name)
+				proc_ie_bits.append(port_entry_get_disposition(entry))
+				break
 
-		return (proc_pids, proc_names, proc_disp)
+		return (proc_pids, proc_names, proc_ie_bits)
 
 	task_queue = lldb.debugger.GetSelectedTarget().FindFirstGlobalVariable('tasks')
 	task_ptr_type = getsbtype('struct task *')
-	target_port_addr = target_port.GetValueAsUnsigned()
 
 	for task in iterate_queue(task_queue, task_ptr_type, 'tasks'):
 		for entry in task_iterate_ipc_entry(task, disposition):
-			ipc_port_ptr_type = getsbtype('struct ipc_port *')
 			port = entry.GetChildMemberWithName('ie_object').Cast(ipc_port_ptr_type)
 			if port.GetValueAsUnsigned() == target_port_addr:
 				proc_pids.append(task_get_p_pid(task))
 				proc_names.append(task_get_p_name(task))
-				proc_disps.append(port_entry_get_disposition(entry))
+				proc_ie_bits.append(port_entry_get_ie_bits(entry))
 
-	return (proc_pids, proc_names, proc_disps)
+	return (proc_pids, proc_names, proc_ie_bits)
 
 
 def task_iterate_ipc_entry(target_task, disposition=None):
@@ -215,8 +222,8 @@ def task_iterate_ipc_port(target_task, dispostion=None):
 		yield ipc_port
 
 
-def port_entry_get_disposition(target_entry):
-	""" Return the port disposition on ie_entry TARGET_ENTRY.
+def port_entry_get_ie_bits(target_entry):
+	""" Return the ie_bits on ie_entry TARGET_ENTRY.
 		params:
 			target_entry 		- lldb.SBValue
 
