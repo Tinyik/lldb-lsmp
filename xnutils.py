@@ -33,13 +33,41 @@ def task_for_pid(target_pid):
     task_ptr_type = getsbtype('struct task *')
 
     for task in iterate_queue(task_queue, task_ptr_type, 'tasks'):
-        bsd_info_void_ptr = task.GetChildMemberWithName('bsd_info')
-        proc_ptr_type = getsbtype('struct proc *')
-        proc = bsd_info_void_ptr.Cast(proc_ptr_type)
-
-        p_pid = proc.GetChildMemberWithName('p_pid').GetValueAsUnsigned()
+    	p_pid = task_get_p_pid(task)
         if proc and p_pid == target_pid:
             return task
+
+
+def task_get_p_pid(target_task):
+	""" Return the p_pid of TARGET_TASK's wrapper proc.
+		params:
+			target_task 		- lldb.SBValue
+
+		returns:
+			p_pid 				- int
+	"""
+	bsd_info_void_ptr = target_task.GetChildMemberWithName('bsd_info')
+    proc_ptr_type = getsbtype('struct proc *')
+    proc = bsd_info_void_ptr.Cast(proc_ptr_type)
+
+    p_pid = proc.GetChildMemberWithName('p_pid').GetValueAsUnsigned()
+    return p_pid
+
+
+def task_get_p_name(target_task):
+	""" Return the p_name of TARGET_TASK's wrapper proc.
+		params:
+			target_task 		- lldb.SBValue
+
+		returns:
+			p_name 				- str
+	"""
+	bsd_info_void_ptr = target_task.GetChildMemberWithName('bsd_info')
+    proc_ptr_type = getsbtype('struct proc *')
+    proc = bsd_info_void_ptr.Cast(proc_ptr_type)
+
+    p_name = proc.GetChildMemberWithName('p_name').GetSummary()
+    return p_name
 
 
 def port_get_receiver(target_port):
@@ -49,15 +77,13 @@ def port_get_receiver(target_port):
 
 		returns:
 			(receiver_proc_pid, 	- int
-			receiver_proc_name)		- str
+			 receiver_proc_name)		- str
 	"""
-    receiver = target_port.GetChildMemberWithName('data').GetChildMemberWithName('receiver')
+    receiver_itk_space = target_port.GetChildMemberWithName('data').GetChildMemberWithName('receiver')
 
-    receiver_task_ptr = receiver.GetChildMemberWithName('is_task')
-    proc_ptr_type = getsbtype('struct proc *')
-    receiver_proc_ptr = receiver_task_ptr.GetChildMemberWithName('bsd_info').Cast(proc_ptr_type)
-    receiver_proc_pid = receiver_proc_ptr.GetChildMemberWithName('p_pid').GetValueAsUnsigned()
-    receiver_proc_name = receiver_proc_ptr.GetChildMemberWithName('p_name').GetSummary()
+    receiver_task = receiver_itk_space.GetChildMemberWithName('is_task')
+    receiver_proc_pid = task_get_p_pid(receiver_task)
+    receiver_proc_name = task_get_p_name(receiver_task)
 
     return (receiver_proc_pid, receiver_proc_name)
 
@@ -108,21 +134,37 @@ def task_get_ith_ipc_port(target_task, index):
     return ipc_port
 
 
-def port_find_send_right(target_port):
-	""" Return the p_pid and p_name that owns a send right to TARGET_PORT.
+def port_find_right(target_port, dispostion=None):
+	""" Return the p_pid and p_name that has reference to TARGET_PORT with disposition DISPOSITION
 		params:
-			target_port 			- lldb.SBValue
-
+			target_port 				- lldb.SBValue
+			disposition 				- int 					If None, no restriction on disposition,
+																and thus all references to TARGET_PORT are returned.
+																
 		returns:
-			(sender_proc_pids, 		- list of int
-			sender_proc_names)		- list of str
+			(proc_pids, 				- list of int           If disposition is NOT MACH_PORT_RIGHT_RECEIVE
+			 proc_names)				- list of str
+
+			(receiver_proc_pid, 		- int 					If disposition is MACH_PORT_RIGHT_RECEIVE
+			 receiver_proc_name)		- str
 	"""
+	if disposition == MACH_PORT_RIGHT_RECEIVE:
+		return port_get_receiver(target_port)
+
 	task_queue = lldb.debugger.GetSelectedTarget().FindFirstGlobalVariable('tasks')
     task_ptr_type = getsbtype('struct task *')
+    target_port_addr = target_port.GetValueAsUnsigned()
+
+    proc_pids = []
+    proc_names = []
 
     for task in iterate_queue(task_queue, task_ptr_type, 'tasks'):
-    	for port in task_iterate_ipc_port(task, MACH_PORT_RIGHT_SEND):
-    		if port
+    	for port in task_iterate_ipc_port(task, disposition):
+
+    		assert(port.GetType().TypeIsPointerType() == True)
+    		if port.GetValueAsUnsigned() == target_port_addr:
+    			proc_pids.append(task_get_p_pid(task))
+    			proc_names.append(task_get_p_name(task))
 
 
 def task_iterate_ipc_entry(target_task, dispostion=None):

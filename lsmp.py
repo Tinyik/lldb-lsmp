@@ -44,13 +44,6 @@ class ListMachPort:
                             help='the index of the mach port'
                             )
 
-        parser.add_argument('-n',
-                            '--name',
-                            dest='mpname',
-                            type=int,
-                            help='the name of the mach port'
-                            )
-
         parser.add_argument('-c',
                             '--count',
                             dest='count',
@@ -69,12 +62,10 @@ class ListMachPort:
     def __call__(self, debugger, command, exe_ctx, result):
         args = ListMachPort.parser.parse_args(command.split())
         
-        target_pid, mpindex, mpname, count = args.pid, args.mpindex, args.mpname, args.count
+        target_pid, mpindex, count = args.pid, args.mpindex, args.count
 
 
-        #FIXME: Add --name switch properly
-        if mpname is not None:
-            pass
+
 
         task = task_for_pid(target_pid) 
         if task is None:
@@ -97,7 +88,7 @@ class ListMachPort:
 
         assert(ipc_entry.GetTypeName() == 'ipc_entry')
 
-        proc_pid, proc_name = port_get_receiver(ipc_port)
+        proc_pid, proc_name = port_find_right(ipc_port, MACH_PORT_RIGHT_RECEIVE)
 
         if proc_name is not None:
             print "Receive right of this port belongs to %s" % receiver_proc_name
