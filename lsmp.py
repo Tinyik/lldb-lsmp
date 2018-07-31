@@ -8,6 +8,7 @@
 
 import lldb
 import argparse
+from functools import wraps
 from xnutils import *
 
 
@@ -16,6 +17,45 @@ target = None
 class ListMachPort:
 
     lldb_command = 'lsmp'
+
+    def __init__(self, debugger, internal_dic):
+        pass
+
+
+    @print_header("{0: <20s} {1: <20s} {2: <16s}".format('pid', 'name', 'ie_bits'))
+    def __call__(self, debugger, command, exe_ctx, result):
+        args = ListMachPort.parser.parse_args(command.split())
+        
+        target_pid, mpindex, count = args.pid, args.mpindex, args.count
+        disposition = args.show_send | args.show_receive | args.show_send_once
+
+        # struct task *, not task port
+        task = task_for_pid(target_pid)
+
+        if task is None:
+            print "Cannot find process with pid %d" % target_pid
+            exit(-1)
+
+        itk_space = task.GetChildMemberWithName('itk_space')
+        is_table_size = itk_space.GetChildMemberWithName('is_table_size').GetValueAsUnsigned()
+
+        if count:
+            print "This process has %d port rights." % is_table_size
+            return
+
+        ipc_port = None
+        try:
+            ipc_port = task_get_ith_ipc_port(task, mpindex)
+        except IndexError as e:
+            print "The given index exceeds is_table_size: %d" % is_table_size
+            return
+
+        #FIXME: Current implementation does not consider ipc_space_kernel
+        proc_pid, proc_name, ie_bits = port_find_right(ipc_port, disposition)
+
+        print_format = "{0: <20s} {1: <20s} {2: <16s}"
+
+        return print_format, zip(proc_pid, proc_name, ie_bits)
 
 
     @classmethod
@@ -79,58 +119,27 @@ class ListMachPort:
         return parser
 
 
-    def __init__(self, debugger, internal_dic):
-        pass
-
-
-    def __call__(self, debugger, command, exe_ctx, result):
-        args = ListMachPort.parser.parse_args(command.split())
-        
-        target_pid, mpindex, count = args.pid, args.mpindex, args.count
-        disposition = args.show_send | args.show_receive | args.show_send_once
-
-        # struct task *, not task port
-        task = task_for_pid(target_pid)
-
-        if task is None:
-            print "Cannot find process with pid %d" % target_pid
-            exit(-1)
-
-        itk_space = task.GetChildMemberWithName('itk_space')
-        is_table_size = itk_space.GetChildMemberWithName('is_table_size').GetValueAsUnsigned()
-
-        if count:
-            print "This process has %d port rights." % is_table_size
-            return
-
-        ipc_port = None
-        try:
-            ipc_port = task_get_ith_ipc_port(task, mpindex)
-        except IndexError as e:
-            print "The given index exceeds is_table_size: %d" % is_table_size
-            return
-
-        #FIXME: Current implementation does not consider ipc_space_kernel
-
-        proc_pid, proc_name, ie_bits = port_find_right(ipc_port, disposition)
-
-        print proc_pid
-        print "====="
-        print proc_name
-        print "====="
-        print [hex(x) for x in ie_bits]
-
-        # if proc_name is not None:
-        #     print "Receive right of this port belongs to %d: %s" % (proc_pid, proc_name)
-        # else:
-        #     print "This port does not have receiver"
 
 
 def __lldb_init_module(debugger, internal_dic):
+    """ lldb `command script import` auto invoke"""
     global target
     target = debugger.GetSelectedTarget()
 
     ListMachPort.register_with_lldb(debugger, __name__)
+
+
+def print_header(header):
+    """ Higher order function for printing formatted output to console."""
+    def _print_header(func):
+        @wraps(func)
+        def __print_line(*args, **kwargs):
+            print_format, lines = func(*args, **kwargs)
+            for line in lines:
+                print print_format.format(*line)
+        return __print_line
+    print header
+    return _print_header
 
 
 
