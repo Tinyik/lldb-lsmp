@@ -39,7 +39,17 @@ class ListMachPort:
 		args = ListMachPort.parser.parse_args(command.split())
 		
 		target_pid, mpindex, count = args.pid, args.mpindex, args.count
-		disposition = args.show_send | args.show_receive | args.show_send_once
+
+		disposition     = args.show_receive 		   | 			\
+						  args.show_send 		   	   | 			\
+						  args.show_send_once          | 			\
+						  args.show_dead
+
+		if disposition == 0:
+			disposition = MACH_PORT_TYPE_RECEIVE   	   | 			\
+						  MACH_PORT_TYPE_SEND 	       | 			\
+						  MACH_PORT_TYPE_SEND_ONCE     | 			\
+						  MACH_PORT_TYPE_DEAD_NAME
 
 		# struct task *, not task port
 		task = task_for_pid(target_pid)
@@ -62,14 +72,14 @@ class ListMachPort:
 		ipc_port = None
 		try:
 			ipc_port = task_get_ith_ipc_port(task, mpindex)
-		except IndexError as e:
+		except IndexError:
 			print "The given index exceeds is_table_size: %d" % is_table_size
 			return
 
-		self.show_port_details(ipc_port, disposition)
+		self.port_show_details(ipc_port, disposition)
 
 
-	@print_header("{0: >5s} {1: <30s} {2: <30s} {3: <10s} {4: <50s}".format('#', 'ie_bits', 'disposition', 'receiver_pid', 'receiver_name'))
+	@print_header("{0: >5s}   {1: <30s} {2: <30s} {3: <10s} {4: <50s}".format('#', 'ie_bits', 'disposition', 'receiver_pid', 'receiver_name'))
 	def task_list_mach_port(self, target_task):
 		""" List mach ports which TARGET_TASK holds a reference to
 			params:
@@ -86,18 +96,24 @@ class ListMachPort:
 
 		for entry in task_iterate_ipc_entry(target_task):
 			ie_bits = port_entry_get_ie_bits(entry)
+
 			disp = ie_bits_get_disposition_str(ie_bits)
 			port = port_entry_get_port(entry)
+
+			if port.GetValueAsUnsigned() == MACH_PORT_NULL:
+				index += 1
+				continue
+
 			receiver_pid, receiver_name, _ = port_get_receiver_info(port)
 			lines.append((index, ie_bits, disp, receiver_pid, receiver_name))
 			index += 1
 
-		print_format = "{0: >5s} {1: <30d} {2: <30s} {3: <10d} {4: <50s}"
+		print_format = "{0: >5d}   0x{1: <28x} {2: <30s} {3: <10d} {4: <50s}"
 
 		return print_format, lines
 
 
-	@print_header("{0: >5s} {1: <10s} {2: <50s} {3: <30s} {4: <30s} {5: <30s}".format('#', 'pid', 'name', 'ie_bits', 'disposition', 'entry_index'))
+	@print_header("{0: >5s}   {1: <10s} {2: <50s} {3: <30s} {4: <30s} {5: <30s}".format('#', 'pid', 'name', 'ie_bits', 'disposition', 'ie_index'))
 	def port_show_details(self, target_port, disposition):
 		""" Output details about TARGET_PORT
 			params:
@@ -119,7 +135,7 @@ class ListMachPort:
 			disp_str = ie_bits_get_disposition_str(bits)
 			disp_strs.append(disp_str)
 
-		print_format = "{0: >5d} {1: <10d} {2: <50s} 0x{3: <28x} {4: <30s} {5: <30d}"
+		print_format = "{0: >5d}   {1: <10d} {2: <50s} 0x{3: <28x} {4: <30s} {5: <30d}"
 
 		return print_format, zip(range(1, len(proc_pid)+1), proc_pid, proc_name, ie_bits, disp_strs, indices)
 
@@ -172,6 +188,14 @@ class ListMachPort:
 							const=MACH_PORT_TYPE_SEND,
 							default=0,
 							help='include SEND right'
+							)
+
+		parser.add_argument('--DEAD',
+							dest='show_dead',
+							action='store_const',
+							const=MACH_PORT_TYPE_DEAD_NAME,
+							default=0,
+							help='include DEAD_NAME right'
 							)
 
 		parser.add_argument('-c',

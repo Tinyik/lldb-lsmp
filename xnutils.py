@@ -9,6 +9,7 @@ import re
 
 
 # DONOTCHANGE: /osfmk/mach/port.h
+MACH_PORT_NULL				= 0x00000000
 MACH_PORT_TYPE_SEND 		= 0x00010000
 MACH_PORT_TYPE_RECEIVE 		= 0x00020000
 MACH_PORT_TYPE_SEND_ONCE 	= 0x00040000
@@ -18,7 +19,6 @@ SIZE_OF_IPC_ENTRY = 0x18
 
 # Cache for lldb.type conversion
 _str_to_sbtype_cache = {}
-
 
 def task_for_pid(target_pid):
 	""" Return the task corresponds to TARGET_PID.
@@ -56,16 +56,18 @@ def task_get_p_pid(target_task):
 
 def task_get_p_name(target_task):
 	""" Return the p_name of TARGET_TASK's wrapper proc.
+		assumes:
+			TARGET_TASK is not NULL.
+
 		params:
 			target_task 		- lldb.SBValue
 
 		returns:
 			p_name 				- str
-	"""
+	""" 
 	bsd_info_void_ptr = target_task.GetChildMemberWithName('bsd_info')
 	proc_ptr_type = getsbtype('struct proc *')
 	proc = bsd_info_void_ptr.Cast(proc_ptr_type)
-
 	p_name = proc.GetChildMemberWithName('p_name').GetSummary().strip('"')
 	return p_name
 
@@ -81,10 +83,29 @@ def port_get_receiver_info(target_port):
 			 receiver_task     )		- lldb.SBValue
 	"""
 	receiver_itk_space = target_port.GetChildMemberWithName('data').GetChildMemberWithName('receiver')
+	itk_space_addr = receiver_itk_space.GetValueAsUnsigned()
+	ipc_space_kernel = lldb.debugger.GetSelectedTarget().FindFirstGlobalVariable('ipc_space_kernel')
+	ipc_space_reply  = lldb.debugger.GetSelectedTarget().FindFirstGlobalVariable('ipc_space_reply')
 
-	receiver_task = receiver_itk_space.GetChildMemberWithName('is_task')
-	receiver_proc_pid = task_get_p_pid(receiver_task)
-	receiver_proc_name = task_get_p_name(receiver_task)
+	if itk_space_addr == ipc_space_kernel.GetValueAsUnsigned():
+		receiver_proc_pid = 0
+		receiver_proc_name = 'ipc_space_kernel'
+		receiver_task = None
+	elif itk_space_addr == ipc_space_reply.GetValueAsUnsigned():
+		receiver_proc_pid = 0
+		receiver_proc_name = 'ipc_space_reply'
+		receiver_task = None
+	else:
+		receiver_task = receiver_itk_space.GetChildMemberWithName('is_task')
+		if receiver_task.GetValueAsUnsigned() == 0:
+			print receiver_itk_space
+			print '[port_get_receiver_info]: Weird space %x has no task, adding a placeholder task...' % itk_space_addr
+			receiver_task = None
+			receiver_proc_pid = -1
+			receiver_proc_name = 'N/A'
+		else:
+			receiver_proc_pid = task_get_p_pid(receiver_task)
+			receiver_proc_name = task_get_p_name(receiver_task)
 
 	return (receiver_proc_pid, receiver_proc_name, receiver_task)
 
@@ -178,7 +199,7 @@ def port_find_right(target_port, disposition=None):
 				proc_pids.append(task_get_p_pid(task))
 				proc_names.append(task_get_p_name(task))
 				entry_ie_bits.append(port_entry_get_ie_bits(entry))
-				entry_indices.append(entry.GetChildMemberWithName('index').GetValueAsUnsigned())
+				entry_indices.append(entry.GetChildMemberWithName('ie_index').GetValueAsUnsigned())
 
 	return (proc_pids, proc_names, entry_ie_bits, entry_indices)
 
