@@ -66,7 +66,7 @@ class ListMachPort:
 			return
 
 		if mpindex is None:
-			self.task_list_mach_port(task)
+			self.task_list_mach_port(task, disposition)
 			return
 
 		ipc_port = None
@@ -79,11 +79,12 @@ class ListMachPort:
 		self.port_show_details(ipc_port, disposition)
 
 
-	@print_header("{0: >5s}   {1: <30s} {2: <30s} {3: <10s} {4: <50s}".format('#', 'ie_bits', 'disposition', 'receiver_pid', 'receiver_name'))
-	def task_list_mach_port(self, target_task):
-		""" List mach ports which TARGET_TASK holds a reference to
+	@print_header("{0: >5s}   {1: <30s} {2: <30s} {3: <20s} {4: <50s}".format('#', 'ie_bits', 'disposition', 'receiver_pid', 'receiver_name'))
+	def task_list_mach_port(self, target_task, disposition):
+		""" List mach ports with ONE OF disposition which TARGET_TASK holds a reference to
 			params:
 				target_task         - lldb.SBValue
+				disposition 		- bitmap
 
 			prints:
 				ie_bits
@@ -94,7 +95,7 @@ class ListMachPort:
 		lines = []
 		index = 0
 
-		for entry in task_iterate_ipc_entry(target_task):
+		for entry in task_iterate_ipc_entry(target_task, disposition):
 			ie_bits = port_entry_get_ie_bits(entry)
 
 			disp = ie_bits_get_disposition_str(ie_bits)
@@ -108,7 +109,7 @@ class ListMachPort:
 			lines.append((index, ie_bits, disp, receiver_pid, receiver_name))
 			index += 1
 
-		print_format = "{0: >5d}   0x{1: <28x} {2: <30s} {3: <10d} {4: <50s}"
+		print_format = "{0: >5d}   0x{1: <28x} {2: <30s} {3: <20d} {4: <50s}"
 
 		return print_format, lines
 

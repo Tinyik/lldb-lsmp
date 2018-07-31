@@ -291,7 +291,7 @@ def ie_bits_get_disposition_str(ie_bits):
 		disp_str = disp_str + ' DEAD '
 
 	if disp_str is '':
-		disp_str = 'OTHER'
+		disp_str = ' OTHER '
 
 	return disp_str
 
