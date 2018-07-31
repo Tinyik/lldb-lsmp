@@ -44,6 +44,30 @@ class ListMachPort:
                             help='the index of the mach port'
                             )
 
+        parser.add_argument('--RCV',
+                            dest='show_receive',
+                            action='store_const',
+                            const=MACH_PORT_TYPE_RECEIVE,
+                            default=0,
+                            help='include RECEIVE right'
+                            )
+
+        parser.add_argument('--SONCE',
+                            dest='show_send_once',
+                            action='store_const',
+                            const=MACH_PORT_TYPE_SEND_ONCE,
+                            default=0,
+                            help='include SEND_ONCE right'
+                            )
+
+        parser.add_argument('--SEND',
+                            dest='show_send',
+                            action='store_const',
+                            const=MACH_PORT_TYPE_SEND,
+                            default=0,
+                            help='include SEND right'
+                            )
+
         parser.add_argument('-c',
                             '--count',
                             dest='count',
@@ -63,11 +87,11 @@ class ListMachPort:
         args = ListMachPort.parser.parse_args(command.split())
         
         target_pid, mpindex, count = args.pid, args.mpindex, args.count
+        disposition = args.show_send | args.show_receive | args.show_send_once
 
+        # struct task *, not task port
+        task = task_for_pid(target_pid)
 
-
-
-        task = task_for_pid(target_pid) 
         if task is None:
             print "Cannot find process with pid %d" % target_pid
             exit(-1)
@@ -76,24 +100,30 @@ class ListMachPort:
         is_table_size = itk_space.GetChildMemberWithName('is_table_size').GetValueAsUnsigned()
 
         if count:
-            print 'This process has %d port rights.' % is_table_size
+            print "This process has %d port rights." % is_table_size
             return
 
         ipc_port = None
         try:
             ipc_port = task_get_ith_ipc_port(task, mpindex)
         except IndexError as e:
-            print 'The given index exceeds is_table_size: %d' % is_table_size
+            print "The given index exceeds is_table_size: %d" % is_table_size
             return
 
-        assert(ipc_entry.GetTypeName() == 'ipc_entry')
+        #FIXME: Current implementation does not consider ipc_space_kernel
 
-        proc_pid, proc_name = port_find_right(ipc_port, MACH_PORT_RIGHT_RECEIVE)
+        proc_pid, proc_name, disps = port_find_right(ipc_port, disposition)
 
-        if proc_name is not None:
-            print "Receive right of this port belongs to %s" % receiver_proc_name
-        else:
-            print "This port does not have receiver"
+        print proc_pid
+        print "====="
+        print proc_name
+        print "====="
+        print [hex(x) for x in disps]
+
+        # if proc_name is not None:
+        #     print "Receive right of this port belongs to %d: %s" % (proc_pid, proc_name)
+        # else:
+        #     print "This port does not have receiver"
 
 
 def __lldb_init_module(debugger, internal_dic):
