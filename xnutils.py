@@ -153,13 +153,12 @@ def port_find_right(target_port, disposition=None):
 	entry_indices	= []
 
 	target_port_addr = target_port.GetValueAsUnsigned()
-	ipc_port_ptr_type = getsbtype('struct ipc_port *')
 
 	# If dispostion is just MACH_PORT_TYPE_RECEIVE, we take the fast path
 	if disposition == MACH_PORT_TYPE_RECEIVE:
 		receiver_pid, receiver_proc_name, receiver_task = port_get_receiver_info(target_port)
 		for entry in task_iterate_ipc_entry(receiver_task, MACH_PORT_TYPE_RECEIVE):
-			port = entry.GetChildMemberWithName('ie_object').Cast(ipc_port_ptr_type)
+			port = port_entry_get_port(entry)
 			if port.GetValueAsUnsigned() == target_port_addr:
 				proc_pids.append(receiver_pid)
 				proc_names.append(receiver_proc_name)
@@ -174,7 +173,7 @@ def port_find_right(target_port, disposition=None):
 
 	for task in iterate_queue(task_queue, task_ptr_type, 'tasks'):
 		for entry in task_iterate_ipc_entry(task, disposition):
-			port = entry.GetChildMemberWithName('ie_object').Cast(ipc_port_ptr_type)
+			port = port_entry_get_port(entry)
 			if port.GetValueAsUnsigned() == target_port_addr:
 				proc_pids.append(task_get_p_pid(task))
 				proc_names.append(task_get_p_name(task))
@@ -236,6 +235,44 @@ def port_entry_get_ie_bits(target_entry):
 	ie_bits = target_entry.GetChildMemberWithName('ie_bits').GetValueAsUnsigned()
 
 	return ie_bits
+
+
+def port_entry_get_port(target_entry):
+	""" Get mach port inside TARGET_ENTRY
+		params:
+			target_entry 		- lldb.SBValue
+
+		returns:
+			port 				- lldb.SBValue
+	"""
+	ipc_port_ptr_type = getsbtype('struct ipc_port *')
+	port = target_entry.GetChildMemberWithName('ie_object').Cast(ipc_port_ptr_type)
+
+	return port
+
+def ie_bits_get_disposition_str(ie_bits):
+	""" Convert IE_BITS to a human readable disposition string
+		params:
+			ie_bits 		    - int
+
+		returns:
+			disp_str 			- str
+	"""
+	disp_str = ''
+
+	if ie_bits & MACH_PORT_TYPE_RECEIVE:
+		disp_str = disp_str + ' RCV '
+	if ie_bits & MACH_PORT_TYPE_SEND:
+		disp_str = disp_str + ' SEND '
+	if ie_bits & MACH_PORT_TYPE_SEND_ONCE:
+		disp_str = disp_str + ' SONCE '
+	if ie_bits & MACH_PORT_TYPE_DEAD_NAME:
+		disp_str = disp_str + ' DEAD '
+
+	if disp_str is '':
+		disp_str = 'OTHER'
+
+	return disp_str
 
 
 def port_entry_contains_disposition(target_entry, dispostion):
