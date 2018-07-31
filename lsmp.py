@@ -76,7 +76,7 @@ class ListMachPort:
         if mpname is not None:
             pass
 
-        task = find_task_with_pid(target_pid) 
+        task = task_for_pid(target_pid) 
         if task is None:
             print "Cannot find process with pid %d" % target_pid
             exit(-1)
@@ -97,7 +97,7 @@ class ListMachPort:
 
         assert(ipc_entry.GetTypeName() == 'ipc_entry')
 
-        proc_pid, proc_name = find_receive_right_for_port(ipc_port)
+        proc_pid, proc_name = port_get_receiver(ipc_port)
 
         if proc_name is not None:
             print "Receive right of this port belongs to %s" % receiver_proc_name

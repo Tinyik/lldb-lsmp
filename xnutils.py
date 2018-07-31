@@ -20,7 +20,7 @@ SIZE_OF_IPC_ENTRY = 0x18
 _str_to_sbtype_cache = {}
 
 
-def find_task_with_pid(target_pid):
+def task_for_pid(target_pid):
     """ Return the task corresponds to TARGET_PID.
         params:
             target_pid         - int
@@ -42,16 +42,16 @@ def find_task_with_pid(target_pid):
             return task
 
 
-def find_receive_right_for_port(ipc_port):
-	""" Returns the p_pid and p_name that owns the receive right to IPC_PORT.
+def port_get_receiver(target_port):
+	""" Return the p_pid and p_name that owns the receive right to TARGET_PORT.
 		params:
-			ipc_port 				- lldb.SBValue
+			target_port 			- lldb.SBValue
 
 		returns:
 			(receiver_proc_pid, 	- int
 			receiver_proc_name)		- str
 	"""
-    receiver = ipc_port.GetChildMemberWithName('data').GetChildMemberWithName('receiver')
+    receiver = target_port.GetChildMemberWithName('data').GetChildMemberWithName('receiver')
 
     receiver_task_ptr = receiver.GetChildMemberWithName('is_task')
     proc_ptr_type = getsbtype('struct proc *')
@@ -62,10 +62,10 @@ def find_receive_right_for_port(ipc_port):
     return (receiver_proc_pid, receiver_proc_name)
 
 
-def task_get_ith_ipc_entry(task, index):
-	""" Returns the INDEX-th ipc_entry in TASKS's itk_space.
+def task_get_ith_ipc_entry(target_task, index):
+	""" Return the INDEX-th ipc_entry in TARGET_TASK's itk_space.
 		params:
-			task 				- lldb.SBValue
+			target_task 		- lldb.SBValue
 			index 				- int
 
 		returns:
@@ -74,7 +74,7 @@ def task_get_ith_ipc_entry(task, index):
 		throws:
 			IndexError			- If index is out of bound.
 	"""
-	ipc_space = task.GetChildMemberWithName('itk_space')
+	ipc_space = target_task.GetChildMemberWithName('itk_space')
     is_table_size = ipc_space.GetChildMemberWithName('is_table_size').GetValueAsUnsigned()
     is_table = itk_space.GetChildMemberWithName('is_table')
 
@@ -89,10 +89,10 @@ def task_get_ith_ipc_entry(task, index):
     return ipc_entry
 
 
-def task_get_ith_ipc_port(task, index):
-	""" Returns the INDEX-th ipc_port in TASKS's itk_space.
+def task_get_ith_ipc_port(target_task, index):
+	""" Return the INDEX-th ipc_port in TARGET_TASK's itk_space.
 		params:
-			task 				- lldb.SBValue
+			target_task 		- lldb.SBValue
 			index 				- int
 
 		returns:
@@ -101,39 +101,80 @@ def task_get_ith_ipc_port(task, index):
 		throws:
 			IndexError			- If index is out of bound.
 	"""
-	ipc_entry = task_get_ith_ipc_entry(task, index)
+	ipc_entry = task_get_ith_ipc_entry(target_task, index)
 	ipc_port_ptr_type = getsbtype('struct ipc_port *')
     ipc_port = ipc_entry.GetChildMemberWithName('ie_object').Cast(ipc_port_ptr_type)
 
     return ipc_port
 
 
-def find_send_right_for_port(ipc_port):
-	""" Returns the p_pid and p_name that owns a send right to IPC_PORT.
+def port_find_send_right(target_port):
+	""" Return the p_pid and p_name that owns a send right to TARGET_PORT.
 		params:
-			ipc_port 				- lldb.SBValue
+			target_port 			- lldb.SBValue
 
 		returns:
-			(receiver_proc_pid, 	- int
-			receiver_proc_name)		- str
+			(sender_proc_pids, 		- list of int
+			sender_proc_names)		- list of str
 	"""
 	task_queue = lldb.debugger.GetSelectedTarget().FindFirstGlobalVariable('tasks')
     task_ptr_type = getsbtype('struct task *')
 
     for task in iterate_queue(task_queue, task_ptr_type, 'tasks'):
-    	ipc_space = task.GetChildMemberWithName('itk_space')
-    	is_table_size = ipc_space.GetChildMemberWithName('is_table_size').GetValueAsUnsigned()
-    	is_table = ipc_space.GetChildMemberWithName('is_table')
-
-    	for i in range(is_table_size):
+    	for port in task_iterate_ipc_port(task, MACH_PORT_RIGHT_SEND):
+    		if port
 
 
+def task_iterate_ipc_entry(target_task, dispostion=None):
+	""" Iterate over all ipc_entry in TARGET_TASK with port type DISPOSITION.
+		params:
+			target_task 		- lldb.SBValue
+			port_type 			- int               If None, no restriction on port disposition
 
-def get_disposition_for_port(ipc_entry):
+		yields:
+			A lldb.SBValue generator with SBType <struct ipc_entry *>.
+	"""
+	ipc_space = target_task.GetChildMemberWithName('itk_space')
+    is_table_size = ipc_space.GetChildMemberWithName('is_table_size').GetValueAsUnsigned()
+    is_table = ipc_space.GetChildMemberWithName('is_table')
+
+    cur_index = 0
+
+    while cur_index < is_table_size:
+    	ith_ipc_entry_addr = is_table.GetValueAsUnsigned() + cur_index * SIZE_OF_IPC_ENTRY
+    	ith_ipc_entry_sbaddr = lldb.SBAddress(ith_ipc_entry_addr, target)
+    	ipc_entry_type = getsbtype("struct ipc_entry")
+    	ipc_entry = target.CreateValueFromAddress('ith_entry', ith_ipc_entry_sbaddr, ipc_entry_type)
+
+    	cur_index++
+    	if disposition == None or port_get_disposition(ipc_entry) == dispostion:
+    		yield ipc_entry
+    	else:
+    		continue
+
+
+def task_iterate_ipc_port(target_task, dispostion=None):
+	""" Iterate over all ipc_port in TARGET_TASK with port type DISPOSITION.
+		params:
+			target_task 		- lldb.SBValue
+			port_type 			- int               If None, no restriction on port disposition
+
+		yields:
+			A lldb.SBValue generator with SBType <struct ipc_port *>.
+	"""
+ 	for entry in task_iterate_ipc_entry(target_task, dispostion):
+ 		ipc_port_ptr_type = getsbtype('struct ipc_port *')
+    	ipc_port = ipc_entry.GetChildMemberWithName('ie_object').Cast(ipc_port_ptr_type)
+    	yield ipc_port
+
+
+def port_get_disposition(ipc_entry):
 	""" Get mach port dispostion (type) from its containing IPC_ENTRY.
 		params:
 			ipc_entry 			- lldb.SBValue
-
+		
+		returns:
+			right type 			- int
 	"""
 	ie_bits = ipc_entry.GetChildMemberWithName('ie_bits').GetValueAsUnsigned()
 
@@ -163,8 +204,8 @@ def iterate_queue(queue_head, entry_type, entry_field_name):
  			entry_type	   		- lldb.SBType
  			entry_field_name	- str
 
- 		returns:
- 			A lldb.SBValue generator with all tasks.
+ 		yields:
+ 			A lldb.SBValue generator with SBType <struct ENTRY_TYPE>.
 	"""
 
 	queue_head_addr = 0x0
