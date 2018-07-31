@@ -12,7 +12,7 @@ import re
 MACH_PORT_TYPE_SEND 		= 0x00010000
 MACH_PORT_TYPE_RECEIVE 		= 0x00020000
 MACH_PORT_TYPE_SEND_ONCE 	= 0x00040000
-MACH_PORT_TYPR_DEAD_NAME 	= 0x00100000
+MACH_PORT_TYPE_DEAD_NAME 	= 0x00100000
 
 SIZE_OF_IPC_ENTRY = 0x18
 
@@ -66,7 +66,7 @@ def task_get_p_name(target_task):
 	proc_ptr_type = getsbtype('struct proc *')
 	proc = bsd_info_void_ptr.Cast(proc_ptr_type)
 
-	p_name = proc.GetChildMemberWithName('p_name').GetSummary()
+	p_name = proc.GetChildMemberWithName('p_name').GetSummary().strip('"')
 	return p_name
 
 
@@ -149,7 +149,8 @@ def port_find_right(target_port, disposition=None):
 	"""
 	proc_pids 		= []
 	proc_names 		= []
-	proc_ie_bits 	= []
+	entry_ie_bits 	= []
+	entry_indices	= []
 
 	target_port_addr = target_port.GetValueAsUnsigned()
 	ipc_port_ptr_type = getsbtype('struct ipc_port *')
@@ -162,10 +163,11 @@ def port_find_right(target_port, disposition=None):
 			if port.GetValueAsUnsigned() == target_port_addr:
 				proc_pids.append(receiver_pid)
 				proc_names.append(receiver_proc_name)
-				proc_ie_bits.append(port_entry_get_disposition(entry))
+				entry_ie_bits.append(port_entry_get_ie_bits(entry))
+				entry_indices.append(entry.GetChildMemberWithName('index').GetValueAsUnsigned())
 				break
 
-		return (proc_pids, proc_names, proc_ie_bits)
+		return (proc_pids, proc_names, entry_ie_bits, entry_indices)
 
 	task_queue = lldb.debugger.GetSelectedTarget().FindFirstGlobalVariable('tasks')
 	task_ptr_type = getsbtype('struct task *')
@@ -176,9 +178,10 @@ def port_find_right(target_port, disposition=None):
 			if port.GetValueAsUnsigned() == target_port_addr:
 				proc_pids.append(task_get_p_pid(task))
 				proc_names.append(task_get_p_name(task))
-				proc_ie_bits.append(port_entry_get_ie_bits(entry))
+				entry_ie_bits.append(port_entry_get_ie_bits(entry))
+				entry_indices.append(entry.GetChildMemberWithName('index').GetValueAsUnsigned())
 
-	return (proc_pids, proc_names, proc_ie_bits)
+	return (proc_pids, proc_names, entry_ie_bits, entry_indices)
 
 
 def task_iterate_ipc_entry(target_task, disposition=None):

@@ -14,6 +14,19 @@ from xnutils import *
 
 target = None
 
+def print_header(header):
+    """ Higher order function for printing formatted output to console."""
+    def _print_header(func):
+        @wraps(func)
+        def __print_line(*args, **kwargs):
+            print_format, lines = func(*args, **kwargs)
+            print header
+            for line in lines:
+                print print_format.format(*line)
+        return __print_line
+    return _print_header
+
+
 class ListMachPort:
 
     lldb_command = 'lsmp'
@@ -22,7 +35,7 @@ class ListMachPort:
         pass
 
 
-    @print_header("{0: <20s} {1: <20s} {2: <16s}".format('pid', 'name', 'ie_bits'))
+    @print_header("{0: >5s} {1: <10s} {2: <50s} {3: <30s} {4: <30s} {5: <30s}".format('#', 'pid', 'name', 'ie_bits', 'disposition', 'entry_index'))
     def __call__(self, debugger, command, exe_ctx, result):
         args = ListMachPort.parser.parse_args(command.split())
         
@@ -51,11 +64,29 @@ class ListMachPort:
             return
 
         #FIXME: Current implementation does not consider ipc_space_kernel
-        proc_pid, proc_name, ie_bits = port_find_right(ipc_port, disposition)
+        proc_pid, proc_name, ie_bits, indices = port_find_right(ipc_port, disposition)
 
-        print_format = "{0: <20s} {1: <20s} {2: <16s}"
+        disp_strs = []
 
-        return print_format, zip(proc_pid, proc_name, ie_bits)
+        for bits in ie_bits:
+            tmp_str = ''
+            if bits & MACH_PORT_TYPE_RECEIVE:
+                tmp_str = tmp_str + ' RCV '
+            if bits & MACH_PORT_TYPE_SEND:
+                tmp_str = tmp_str + ' SEND '
+            if bits & MACH_PORT_TYPE_SEND_ONCE:
+                tmp_str = tmp_str + ' SONCE '
+            if bits & MACH_PORT_TYPE_DEAD_NAME:
+                tmp_str = tmp_str + ' DEAD '
+
+            if tmp_str is '':
+                tmp_str = 'OTHER'
+
+            disp_strs.append(tmp_str)
+
+        print_format = "{0: >5d} {1: <10d} {2: <50s} 0x{3: <28x} {4: <30s} {5: <30d}"
+
+        return print_format, zip(range(1, len(proc_pid)+1), proc_pid, proc_name, ie_bits, disp_strs, indices)
 
 
     @classmethod
@@ -128,18 +159,6 @@ def __lldb_init_module(debugger, internal_dic):
 
     ListMachPort.register_with_lldb(debugger, __name__)
 
-
-def print_header(header):
-    """ Higher order function for printing formatted output to console."""
-    def _print_header(func):
-        @wraps(func)
-        def __print_line(*args, **kwargs):
-            print_format, lines = func(*args, **kwargs)
-            for line in lines:
-                print print_format.format(*line)
-        return __print_line
-    print header
-    return _print_header
 
 
 
