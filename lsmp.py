@@ -56,6 +56,8 @@ class ListMachPort:
         pass
 
     def __call__(self, debugger, command, exe_ctx, result):
+        global target
+
         args = ListMachPort.parser.parse_args(command.split())
         
         target_pid, mpindex = args.pid, args.mpindex
@@ -69,11 +71,10 @@ class ListMachPort:
 
         SIZE_OF_IPC_ENTRY = 0x18
 
-
         ith_ipc_entry_addr = is_table.GetValueAsUnsigned() + mpindex * SIZE_OF_IPC_ENTRY
         ith_ipc_entry_sbaddr = lldb.SBAddress(ith_ipc_entry_addr, target)
         ipc_entry_type = getsbtype("struct ipc_entry")
-        ipc_entry = target.CreateValueFromAddress('ith_entry', ith_ipc_entry_addr, ipc_entry_type)
+        ipc_entry = target.CreateValueFromAddress('ith_entry', ith_ipc_entry_sbaddr, ipc_entry_type)
 
         assert(ipc_entry.GetTypeName() == 'ipc_entry')
 
@@ -92,6 +93,7 @@ class ListMachPort:
 
 
 def __lldb_init_module(debugger, internal_dic):
+    global target
     target = debugger.GetSelectedTarget()
 
     ListMachPort.register_with_lldb(debugger, __name__)
