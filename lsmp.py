@@ -72,7 +72,8 @@ class ListMachPort:
 		self.port_show_details(ipc_port, disposition, count)
 
 
-	@print_header("{0: >5s}   {1: <30s} {2: <30s} {3: <20s} {4: <50s} {5: <15s} {6: <15s}".format('index', 'ie_bits', 'disposition', 'receiver_pid', 'receiver_name', 'ip_srights', 'ip_sorights'))
+	@print_header("{0: >5s}   {1: <30s} {2: <30s} {3: <20s} {4: <50s} {5: <15s} {6: <15s}".\
+		format('index', 'ie_bits', 'disposition', 'receiver_pid', 'receiver_name', 'ip_srights', 'ip_sorights'))
 	def task_list_mach_port(self, target_task, disposition, count):
 		""" List mach ports with ONE OF disposition which TARGET_TASK holds a reference to.
 			params:
@@ -137,7 +138,8 @@ class ListMachPort:
 			return print_format, lines, None
 
 
-	@print_header("{0: >5s}   {1: <10s} {2: <50s} {3: <30s} {4: <30s} {5: <30s}".format('#', 'pid', 'name', 'ie_bits', 'disposition', 'ie_index'))
+	@print_header("{0: >5s}   {1: <10s} {2: <50s} {3: <30s} {4: <30s} {5: <30s}".\
+		format('#', 'pid', 'name', 'ie_bits', 'disposition', 'ie_index'))
 	def port_show_details(self, target_port, disposition, count):
 		""" Output details about TARGET_PORT
 			params:
@@ -181,8 +183,9 @@ class ListMachPort:
 				disp_strs.append(disp_str)
 
 			print_format = "{0: >5d}   {1: <10d} {2: <50s} 0x{3: <28x} {4: <30s} {5: <30d}"
-
-			return print_format, zip(range(1, len(proc_pid)+1), proc_pid, proc_name, ie_bits, disp_strs, indices), None
+			lines = zip(range(1, len(proc_pid)+1), proc_pid, proc_name, ie_bits, disp_strs, indices)
+			
+			return print_format, lines, None
 
 
 	# 											------------------ 											   #
