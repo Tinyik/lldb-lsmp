@@ -62,7 +62,7 @@ class ListMachPort:
 		is_table_size = itk_space.GetChildMemberWithName('is_table_size').GetValueAsUnsigned()
 
 		if count:
-			print "This process has %d port rights." % is_table_size
+			print "This process has %d port rights." % (is_table_size - 1)
 			return
 
 		if mpindex is None:
@@ -72,14 +72,14 @@ class ListMachPort:
 		ipc_port = None
 		try:
 			ipc_port = task_get_ith_ipc_port(task, mpindex)
-		except IndexError:
-			print "The given index exceeds is_table_size: %d" % is_table_size
+		except IndexError as e:
+			print e
 			return
 
 		self.port_show_details(ipc_port, disposition)
 
 
-	@print_header("{0: >5s}   {1: <30s} {2: <30s} {3: <20s} {4: <50s}".format('#', 'ie_bits', 'disposition', 'receiver_pid', 'receiver_name'))
+	@print_header("{0: >5s}   {1: <30s} {2: <30s} {3: <20s} {4: <50s} {5: <15s} {6: <15s}".format('#', 'ie_bits', 'disposition', 'receiver_pid', 'receiver_name', 'ip_srights', 'ip_sorights'))
 	def task_list_mach_port(self, target_task, disposition):
 		""" List mach ports with ONE OF disposition which TARGET_TASK holds a reference to
 			params:
@@ -93,7 +93,9 @@ class ListMachPort:
 				receiver_name
 		"""
 		lines = []
-		index = 0
+		lines.append((0, 0xff000000, ' N/A ', -1, 'N/A (Sentinel entry)', -1, -1))
+
+		index = 1 # 0 index is reserved for sentinel
 
 		for entry in task_iterate_ipc_entry(target_task, disposition):
 			ie_bits = port_entry_get_ie_bits(entry)
@@ -105,11 +107,13 @@ class ListMachPort:
 				index += 1
 				continue
 
+			srights = port.GetChildMemberWithName('ip_srights').GetValueAsUnsigned()
+			sorights = port.GetChildMemberWithName('ip_sorights').GetValueAsUnsigned()
 			receiver_pid, receiver_name, _ = port_get_receiver_info(port)
-			lines.append((index, ie_bits, disp, receiver_pid, receiver_name))
+			lines.append((index, ie_bits, disp, receiver_pid, receiver_name, srights, sorights))
 			index += 1
 
-		print_format = "{0: >5d}   0x{1: <28x} {2: <30s} {3: <20d} {4: <50s}"
+		print_format = "{0: >5d}   0x{1: <28x} {2: <30s} {3: <20d} {4: <50s} {5: <15d} {6: <15d}"
 
 		return print_format, lines
 

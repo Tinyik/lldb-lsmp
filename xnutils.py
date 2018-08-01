@@ -127,7 +127,9 @@ def task_get_ith_ipc_entry(target_task, index):
 	is_table = itk_space.GetChildMemberWithName('is_table')
 
 	if index >= is_table_size:
-		raise IndexError("Index greater than is_table_size.")
+		raise IndexError("Index must be less than is_table_size.")
+	if index <= 0:
+		raise IndexError("Index must be positive. 0 is reserved for sentinel node.")
 
 	ith_ipc_entry_addr = is_table.GetValueAsUnsigned() + index * SIZE_OF_IPC_ENTRY
 	ith_ipc_entry_sbaddr = lldb.SBAddress(ith_ipc_entry_addr, lldb.debugger.GetSelectedTarget())
@@ -218,7 +220,6 @@ def task_iterate_ipc_entry(target_task, disposition=None):
 	is_table = ipc_space.GetChildMemberWithName('is_table')
 
 	cur_index = 0
-
 	while cur_index < is_table_size:
 		ith_ipc_entry_addr = is_table.GetValueAsUnsigned() + cur_index * SIZE_OF_IPC_ENTRY
 		ith_ipc_entry_sbaddr = lldb.SBAddress(ith_ipc_entry_addr, lldb.debugger.GetSelectedTarget())
@@ -226,6 +227,8 @@ def task_iterate_ipc_entry(target_task, disposition=None):
 		ipc_entry = lldb.debugger.GetSelectedTarget().CreateValueFromAddress('ith_entry', ith_ipc_entry_sbaddr, ipc_entry_type)
 
 		cur_index += 1
+
+		# First entry of is_table is a sentinel node with ie_bits 0xff000000 and thus will not be yielded
 		if disposition == None or port_entry_contains_disposition(ipc_entry, disposition):
 			yield ipc_entry
 
