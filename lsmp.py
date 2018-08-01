@@ -20,6 +20,8 @@ def print_header(header):
 		@wraps(func)
 		def __print_line(*args, **kwargs):
 			print_format, lines = func(*args, **kwargs)
+			if lines is None or print_format is None:
+				return 
 			print header
 			for line in lines:
 				print print_format.format(*line)
@@ -46,10 +48,7 @@ class ListMachPort:
 						  args.show_dead
 
 		if disposition == 0:
-			disposition = MACH_PORT_TYPE_RECEIVE   	   | 			\
-						  MACH_PORT_TYPE_SEND 	       | 			\
-						  MACH_PORT_TYPE_SEND_ONCE     | 			\
-						  MACH_PORT_TYPE_DEAD_NAME
+			disposition = MACH_PORT_TYPE_ALL
 
 		# struct task *, not task port
 		task = task_for_pid(target_pid)
@@ -58,15 +57,8 @@ class ListMachPort:
 			print "Cannot find process with pid %d" % target_pid
 			exit(-1)
 
-		itk_space = task.GetChildMemberWithName('itk_space')
-		is_table_size = itk_space.GetChildMemberWithName('is_table_size').GetValueAsUnsigned()
-
-		if count:
-			print "This process has %d port rights." % (is_table_size - 1)
-			return
-
 		if mpindex is None:
-			self.task_list_mach_port(task, disposition)
+			self.task_list_mach_port(task, disposition, count)
 			return
 
 		ipc_port = None
@@ -76,50 +68,97 @@ class ListMachPort:
 			print e
 			return
 
-		self.port_show_details(ipc_port, disposition)
+		self.port_show_details(ipc_port, disposition, count)
 
 
-	@print_header("{0: >5s}   {1: <30s} {2: <30s} {3: <20s} {4: <50s} {5: <15s} {6: <15s}".format('#', 'ie_bits', 'disposition', 'receiver_pid', 'receiver_name', 'ip_srights', 'ip_sorights'))
-	def task_list_mach_port(self, target_task, disposition):
-		""" List mach ports with ONE OF disposition which TARGET_TASK holds a reference to
+	@print_header("{0: >5s}   {1: <30s} {2: <30s} {3: <20s} {4: <50s} {5: <15s} {6: <15s}".format('index', 'ie_bits', 'disposition', 'receiver_pid', 'receiver_name', 'ip_srights', 'ip_sorights'))
+	def task_list_mach_port(self, target_task, disposition, count):
+		""" List mach ports with ONE OF disposition which TARGET_TASK holds a reference to.
 			params:
 				target_task         - lldb.SBValue
 				disposition 		- bitmap
+				count 				- Bool  				If true, only count totals and don't list details.
 
 			prints:
+				index               = Index into is_table
 				ie_bits
 				disposition
 				receiver_pid
 				receiver_name
+				ip_srights
+				ip_sorights
 		"""
+		if count:
+			count_rcv, count_send, count_sonce, count_dead, count_null, count_rcv_send = 0, 0, 0, 0, 0, 0
+
 		lines = []
-		lines.append((0, 0xff000000, ' N/A ', -1, 'N/A (Sentinel entry)', -1, -1))
+		# lines.append((0, 0xff000000, ' N/A ', -1, 'N/A (Sentinel entry)', -1, -1))
 
-		index = 1 # 0 index is reserved for sentinel
-
-		for entry in task_iterate_ipc_entry(target_task, disposition):
+		for entry, index in task_iterate_ipc_entry(target_task, disposition):
 			ie_bits = port_entry_get_ie_bits(entry)
 
-			disp = ie_bits_get_disposition_str(ie_bits)
 			port = port_entry_get_port(entry)
 
 			if port.GetValueAsUnsigned() == MACH_PORT_NULL:
-				index += 1
+				if count:
+					count_null += 1
 				continue
 
-			srights = port.GetChildMemberWithName('ip_srights').GetValueAsUnsigned()
-			sorights = port.GetChildMemberWithName('ip_sorights').GetValueAsUnsigned()
-			receiver_pid, receiver_name, _ = port_get_receiver_info(port)
-			lines.append((index, ie_bits, disp, receiver_pid, receiver_name, srights, sorights))
-			index += 1
+			if count:
+				if ie_bits & (MACH_PORT_TYPE_RECEIVE | MACH_PORT_TYPE_SEND) == (MACH_PORT_TYPE_RECEIVE | MACH_PORT_TYPE_SEND):
+					count_rcv_send += 1
+				elif ie_bits & MACH_PORT_TYPE_RECEIVE:
+					count_rcv += 1
+				elif ie_bits & MACH_PORT_TYPE_SEND:
+					count_send += 1
+				elif ie_bits & MACH_PORT_TYPE_SEND_ONCE:
+					count_sonce += 1
+				elif ie_bits & MACH_PORT_TYPE_DEAD_NAME:
+					count_dead += 1
+			else:
+				disp = ie_bits_get_disposition_str(ie_bits)
 
-		print_format = "{0: >5d}   0x{1: <28x} {2: <30s} {3: <20d} {4: <50s} {5: <15d} {6: <15d}"
+				srights = port.GetChildMemberWithName('ip_srights').GetValueAsUnsigned()
+				sorights = port.GetChildMemberWithName('ip_sorights').GetValueAsUnsigned()
+				receiver_pid, receiver_name, _ = port_get_receiver_info(port)
+				lines.append((index, ie_bits, disp, receiver_pid, receiver_name, srights, sorights))
 
-		return print_format, lines
+		if count:
+			total = 0
+
+			if disposition & MACH_PORT_TYPE_SEND_ONCE:
+				print "# of SEND ONCE rights: %d" % count_sonce
+				total += count_sonce
+			if disposition & MACH_PORT_TYPE_DEAD_NAME:
+				print "# of DEAD rights: %d" % count_dead
+				total += count_dead
+			if disposition & MACH_PORT_TYPE_RECEIVE:
+				print "# of RECEIVE rights: %d" % count_rcv
+				total += count_rcv
+			if disposition & MACH_PORT_TYPE_SEND:
+				print "# of SEND rights: %d" % count_send
+				total += count_send
+			if disposition & MACH_PORT_TYPE_SEND or disposition & MACH_PORT_TYPE_RECEIVE:
+				print "# of SEND_RECEIVE rights: %d" % count_rcv_send
+				total += count_rcv_send
+			if disposition == MACH_PORT_TYPE_ALL:
+				print "# of NULL ports: %d" % count_null
+				total += count_null
+
+			print '------------------'
+			print "# Total: %d" % total
+
+			itk_space = target_task.GetChildMemberWithName('itk_space')
+			is_table_size = itk_space.GetChildMemberWithName('is_table_size').GetValueAsUnsigned()
+			print "# ipc_space size: %d" % is_table_size  # 0th entry is sentinel
+			return None, None
+		else:
+			print_format = "{0: >5d}   0x{1: <28x} {2: <30s} {3: <20d} {4: <50s} {5: <15d} {6: <15d}"
+			return print_format, lines
 
 
 	@print_header("{0: >5s}   {1: <10s} {2: <50s} {3: <30s} {4: <30s} {5: <30s}".format('#', 'pid', 'name', 'ie_bits', 'disposition', 'ie_index'))
-	def port_show_details(self, target_port, disposition):
+	def port_show_details(self, target_port, disposition, count):
 		""" Output details about TARGET_PORT
 			params:
 				target_port         - lldb.SBValue

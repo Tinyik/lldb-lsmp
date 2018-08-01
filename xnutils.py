@@ -15,7 +15,10 @@ MACH_PORT_TYPE_RECEIVE 		= 0x00020000
 MACH_PORT_TYPE_SEND_ONCE 	= 0x00040000
 MACH_PORT_TYPE_DEAD_NAME 	= 0x00100000
 
+MACH_PORT_TYPE_ALL			= 0x00170000
+
 SIZE_OF_IPC_ENTRY = 0x18
+
 
 # Cache for lldb.type conversion
 _str_to_sbtype_cache = {}
@@ -180,7 +183,7 @@ def port_find_right(target_port, disposition=None):
 	# If dispostion is just MACH_PORT_TYPE_RECEIVE, we take the fast path
 	if disposition == MACH_PORT_TYPE_RECEIVE:
 		receiver_pid, receiver_proc_name, receiver_task = port_get_receiver_info(target_port)
-		for entry in task_iterate_ipc_entry(receiver_task, MACH_PORT_TYPE_RECEIVE):
+		for entry, _ in task_iterate_ipc_entry(receiver_task, MACH_PORT_TYPE_RECEIVE):
 			port = port_entry_get_port(entry)
 			if port.GetValueAsUnsigned() == target_port_addr:
 				proc_pids.append(receiver_pid)
@@ -195,7 +198,7 @@ def port_find_right(target_port, disposition=None):
 	task_ptr_type = getsbtype('struct task *')
 
 	for task in iterate_queue(task_queue, task_ptr_type, 'tasks'):
-		for entry in task_iterate_ipc_entry(task, disposition):
+		for entry, _ in task_iterate_ipc_entry(task, disposition):
 			port = port_entry_get_port(entry)
 			if port.GetValueAsUnsigned() == target_port_addr:
 				proc_pids.append(task_get_p_pid(task))
@@ -213,7 +216,8 @@ def task_iterate_ipc_entry(target_task, disposition=None):
 			disposition 		- bitmap               If None, no restriction on port disposition
 
 		yields:
-			A lldb.SBValue generator with SBType <struct ipc_entry *>.
+			(ipc_entry,         - lldb.SBValue
+			 cur_index)         - int                  Entry's index into is_table
 	"""
 	ipc_space = target_task.GetChildMemberWithName('itk_space')
 	is_table_size = ipc_space.GetChildMemberWithName('is_table_size').GetValueAsUnsigned()
@@ -226,11 +230,10 @@ def task_iterate_ipc_entry(target_task, disposition=None):
 		ipc_entry_type = getsbtype("struct ipc_entry")
 		ipc_entry = lldb.debugger.GetSelectedTarget().CreateValueFromAddress('ith_entry', ith_ipc_entry_sbaddr, ipc_entry_type)
 
-		cur_index += 1
-
 		# First entry of is_table is a sentinel node with ie_bits 0xff000000 and thus will not be yielded
 		if disposition == None or port_entry_contains_disposition(ipc_entry, disposition):
-			yield ipc_entry
+			yield (ipc_entry, cur_index)
+		cur_index += 1
 
 
 def task_iterate_ipc_port(target_task, dispostion=None):
@@ -240,12 +243,13 @@ def task_iterate_ipc_port(target_task, dispostion=None):
 			disposition 		- bitmap               If None, no restriction on port disposition
 
 		yields:
-			A lldb.SBValue generator with SBType <struct ipc_port *>.
+			(ipc_port,          - lldb.SBValue
+			 cur_index)         - int                  Port's index into is_table
 	"""
-	for entry in task_iterate_ipc_entry(target_task, dispostion):
+	for entry, cur_index in task_iterate_ipc_entry(target_task, dispostion):
 		ipc_port_ptr_type = getsbtype('struct ipc_port *')
 		ipc_port = entry.GetChildMemberWithName('ie_object').Cast(ipc_port_ptr_type)
-		yield ipc_port
+		yield (ipc_port, cur_index)
 
 
 def port_entry_get_ie_bits(target_entry):
