@@ -19,12 +19,13 @@ def print_header(header):
 	def _print_header(func):
 		@wraps(func)
 		def __print_line(*args, **kwargs):
-			print_format, lines = func(*args, **kwargs)
+			print_format, lines, ret = func(*args, **kwargs)
 			if lines is None or print_format is None:
 				return 
 			print header
 			for line in lines:
 				print print_format.format(*line)
+			return ret
 		return __print_line
 	return _print_header
 
@@ -89,7 +90,7 @@ class ListMachPort:
 				ip_sorights
 		"""
 		if count:
-			count_rcv, count_send, count_sonce, count_dead, count_null, count_rcv_send = 0, 0, 0, 0, 0, 0
+			count_rcv = count_send = count_sonce = count_dead = count_null = count_rcv_send = 0
 
 		lines = []
 		# lines.append((0, 0xff000000, ' N/A ', -1, 'N/A (Sentinel entry)', -1, -1))
@@ -108,13 +109,13 @@ class ListMachPort:
 				if ie_bits & (MACH_PORT_TYPE_RECEIVE | MACH_PORT_TYPE_SEND) == (MACH_PORT_TYPE_RECEIVE | MACH_PORT_TYPE_SEND):
 					count_rcv_send += 1
 				elif ie_bits & MACH_PORT_TYPE_RECEIVE:
-					count_rcv += 1
+					count_rcv      += 1
 				elif ie_bits & MACH_PORT_TYPE_SEND:
-					count_send += 1
+					count_send     += 1
 				elif ie_bits & MACH_PORT_TYPE_SEND_ONCE:
-					count_sonce += 1
+					count_sonce    += 1
 				elif ie_bits & MACH_PORT_TYPE_DEAD_NAME:
-					count_dead += 1
+					count_dead     += 1
 			else:
 				disp = ie_bits_get_disposition_str(ie_bits)
 
@@ -124,37 +125,16 @@ class ListMachPort:
 				lines.append((index, ie_bits, disp, receiver_pid, receiver_name, srights, sorights))
 
 		if count:
-			total = 0
 
-			if disposition & MACH_PORT_TYPE_SEND_ONCE:
-				print "# of SEND ONCE rights: %d" % count_sonce
-				total += count_sonce
-			if disposition & MACH_PORT_TYPE_DEAD_NAME:
-				print "# of DEAD rights: %d" % count_dead
-				total += count_dead
-			if disposition & MACH_PORT_TYPE_RECEIVE:
-				print "# of RECEIVE rights: %d" % count_rcv
-				total += count_rcv
-			if disposition & MACH_PORT_TYPE_SEND:
-				print "# of SEND rights: %d" % count_send
-				total += count_send
-			if disposition & MACH_PORT_TYPE_SEND or disposition & MACH_PORT_TYPE_RECEIVE:
-				print "# of SEND_RECEIVE rights: %d" % count_rcv_send
-				total += count_rcv_send
-			if disposition == MACH_PORT_TYPE_ALL:
-				print "# of NULL ports: %d" % count_null
-				total += count_null
-
-			print '------------------'
-			print "# Total: %d" % total
+			print_count_results(disposition, count_rcv_send, count_rcv, count_dead, count_sonce, count_null=count_null)
 
 			itk_space = target_task.GetChildMemberWithName('itk_space')
 			is_table_size = itk_space.GetChildMemberWithName('is_table_size').GetValueAsUnsigned()
 			print "# ipc_space size: %d" % is_table_size  # 0th entry is sentinel
-			return None, None
+			return None, None, None
 		else:
 			print_format = "{0: >5d}   0x{1: <28x} {2: <30s} {3: <20d} {4: <50s} {5: <15d} {6: <15d}"
-			return print_format, lines
+			return print_format, lines, None
 
 
 	@print_header("{0: >5s}   {1: <10s} {2: <50s} {3: <30s} {4: <30s} {5: <30s}".format('#', 'pid', 'name', 'ie_bits', 'disposition', 'ie_index'))
@@ -163,6 +143,7 @@ class ListMachPort:
 			params:
 				target_port         - lldb.SBValue
 				disposition         - bitmap
+				count 				- Bool  				If true, only count totals and don't list details.
 
 			prints:
 				pid
@@ -173,15 +154,69 @@ class ListMachPort:
 		"""
 		proc_pid, proc_name, ie_bits, indices = port_find_right(target_port, disposition)
 
-		disp_strs = []
+		if count:
+			count_rcv = count_send = count_sonce = count_dead = count_rcv_send = 0
 
-		for bits in ie_bits:
-			disp_str = ie_bits_get_disposition_str(bits)
-			disp_strs.append(disp_str)
+			for bits in ie_bits:
+				if bits & (MACH_PORT_TYPE_RECEIVE | MACH_PORT_TYPE_SEND) == (MACH_PORT_TYPE_RECEIVE | MACH_PORT_TYPE_SEND):
+					count_rcv_send += 1
+				elif bits & MACH_PORT_TYPE_RECEIVE:
+					count_rcv 	   += 1
+				elif bits & MACH_PORT_TYPE_SEND:
+					count_send 	   += 1
+				elif bits & MACH_PORT_TYPE_SEND_ONCE:
+					count_sonce    += 1
+				elif bits & MACH_PORT_TYPE_DEAD_NAME:
+					count_dead     += 1
 
-		print_format = "{0: >5d}   {1: <10d} {2: <50s} 0x{3: <28x} {4: <30s} {5: <30d}"
+			print_count_results(disposition, count_rcv_send, count_rcv, count_dead, count_sonce)
 
-		return print_format, zip(range(1, len(proc_pid)+1), proc_pid, proc_name, ie_bits, disp_strs, indices)
+			return None, None, None
+
+		else:
+			disp_strs = []
+
+			for bits in ie_bits:
+				disp_str = ie_bits_get_disposition_str(bits)
+				disp_strs.append(disp_str)
+
+			print_format = "{0: >5d}   {1: <10d} {2: <50s} 0x{3: <28x} {4: <30s} {5: <30d}"
+
+			return print_format, zip(range(1, len(proc_pid)+1), proc_pid, proc_name, ie_bits, disp_strs, indices), None
+
+
+	# 											------------------ 											   #
+	###################							 HELPER FUNCTIONS							 ###################
+	#											------------------           								   #
+
+
+	@print_header("----------\nCount:")
+	def print_count_results(disposition, count_rcv_send, count_rcv, count_dead, count_sonce, count_null=None):
+		total = 0
+
+		if disposition & MACH_PORT_TYPE_SEND_ONCE:
+			print "# of SEND ONCE rights: %d" % count_sonce
+			total += count_sonce
+		if disposition & MACH_PORT_TYPE_DEAD_NAME:
+			print "# of DEAD rights: %d" % count_dead
+			total += count_dead
+		if disposition & MACH_PORT_TYPE_RECEIVE:
+			print "# of RECEIVE rights: %d" % count_rcv
+			total += count_rcv
+		if disposition & MACH_PORT_TYPE_SEND:
+			print "# of SEND rights: %d" % count_send
+			total += count_send
+		if disposition & MACH_PORT_TYPE_SEND or disposition & MACH_PORT_TYPE_RECEIVE:
+			print "# of SEND_RECEIVE rights: %d" % count_rcv_send
+			total += count_rcv_send
+		if disposition == MACH_PORT_TYPE_ALL and count_null is not None:
+			print "# of NULL ports: %d" % count_null
+			total += count_null
+
+		print '------------------'
+		print "# Total: %d" % total
+
+		return None, None, total
 
 
 	@classmethod
